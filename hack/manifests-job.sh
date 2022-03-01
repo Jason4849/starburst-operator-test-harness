@@ -1,8 +1,15 @@
+#!/bin/bash
+source ./env.sh
+
+
+if [[ $1 == create ]]
+then
+cat <<EOF | oc create -f -
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: manifests-test-job
-  namespace: starburst-operator
+  namespace: ${TEST_NAMESPACE}
   labels:
     app:  manifests-test-job
     test: osd-e2e-test
@@ -17,8 +24,10 @@ spec:
       - command:
         - /bin/sh
         - -c
-        - $HOME/peak/installandtest.sh
+        - \$HOME/peak/installandtest.sh
         env:
+        - name: JUPYTERHUB_NAMESPACE
+          value: ${JUPYTERHUB_NAMESPACE}
         - name: PATH
           value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         - name: TEST_NAMESPACE
@@ -27,15 +36,19 @@ spec:
               fieldPath: metadata.namespace
         - name: ARTIFACT_DIR
           value: /tmp/artifacts 
-        image: quay.io/jooholee/starburst-operator-manifests:latest
+        image: ${MANIFESTS_FULL_IMG_URL}
         name: manifests-test
         resources: {}
         volumeMounts:
         - mountPath: /tmp/artifacts
           name: artifacts
       volumes:
-      - name: artifacts
-        persistentVolumeClaim:
-          claimName: ods-ci
+      - emptyDir: {}
+        name: artifacts
       restartPolicy: Never
-      serviceAccountName: starburst-operator-manifests-sa
+      serviceAccountName: ${MANIFESTS_NAME}-sa
+EOF
+
+else
+  oc delete job manifests-test-job --force --ignore-not-found
+fi

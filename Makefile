@@ -15,6 +15,12 @@ push-image:
 
 image: build-image push-image
 
+final-image:
+	$(eval old_ns := $(shell cat env.sh|grep JUPYTERHUB_NAMESPACE|cut -d '=' -f2))
+	sed 's/JUPYTERHUB_NAMESPACE=.*/JUPYTERHUB_NAMESPACE=redhat-ods-applications/g' -i env.sh
+	make image	
+	sed "s/JUPYTERHUB_NAMESPACE=.*/JUPYTERHUB_NAMESPACE=$(old_ns)/g" -i env.sh
+
 # This script create a SA which has cluster-admin role. This is needed to mimik OSD E2E test environment.
 test-setup:
 	./hack/setup.sh
@@ -23,7 +29,7 @@ test-setup:
 # This will deploy ODH in opendatahub namespace 
 odh-deploy:
 	oc project $(JUPYTERHUB_NAMESPACE) || oc new-project $(JUPYTERHUB_NAMESPACE)
-	oc create -f ./hack/odh-operator/subs.yaml
+	oc get subs opendatahub-operator -n openshift-operators || oc create -f ./hack/odh-operator/subs.yaml
 	$(eval kfdef_installed := $(shell oc api-versions|grep kfdef|wc -l)) 
 	sleep 10
 	oc create -f ./hack/odh-operator/cr.yaml -n $(JUPYTERHUB_NAMESPACE)
@@ -45,7 +51,7 @@ endif
 # It gives you more flexible test environment and you can even test un-published new operator version.
 isv-operator-deploy:
 	oc project $(TEST_NAMESPACE) || oc new-project $(TEST_NAMESPACE)
-	oc create -f ./hack/$(OPERATOR_NAME)/subs.yaml
+	oc get subs starburst-enterprise-helm-operator-certified-rhmp -n openshift-operators ||oc create -f ./hack/$(OPERATOR_NAME)/subs.yaml
 	sleep 10
 	oc create -f ./hack/$(OPERATOR_NAME)/cr.yaml -n $(TEST_NAMESPACE) 
 
@@ -60,15 +66,18 @@ isv-operator-clean:
 job-test:
 	oc delete job $(MANIFESTS_NAME)-job -n $(TEST_NAMESPACE) --ignore-not-found
 	oc get sa $(MANIFESTS_NAME)-sa -n $(TEST_NAMESPACE) || $(MAKE) test-setup
-	oc create -f ./template/manifests-test-job.yaml -n $(TEST_NAMESPACE) 
+	./hack/manifests-job.sh create
+	
 
 job-test-clean:
 	oc delete sa $(MANIFESTS_NAME)-sa -n $(TEST_NAMESPACE) --ignore-not-found
 	oc delete rolebinding $(MANIFESTS_NAME)-rb -n $(TEST_NAMESPACE) --ignore-not-found
-	oc delete job manifests-test-job -n $(TEST_NAMESPACE) --ignore-not-found
+	./hack/manifests-job.sh  delete
 	oc delete pod -l job_name=$(MANIFESTS_NAME)-job -n $(TEST_NAMESPACE) --ignore-not-found
-	oc delete pod jupyterhub-nb-admin -n redhat-ods-applications  --ignore-not-found --force --grace-period=0
-	oc delete pvc jupyterhub-nb-admin-pvc -n redhat-ods-applications  --ignore-not-found
+	oc delete pod jupyterhub-nb-admin -n $(JUPYTERHUB_NAMESPACE)  --ignore-not-found --force --grace-period=0
+	oc delete pod jupyterhub-nb-admin -n rhods-notebooks  --ignore-not-found --force --grace-period=0
+	oc delete pvc jupyterhub-nb-admin-pvc -n $(JUPYTERHUB_NAMESPACE)  --ignore-not-found
+	oc delete pvc jupyterhub-nb-admin-pvc -n rhods-notebooks  --ignore-not-found
 
 # After job-test succeed, testing it on the cluster is the last step before you push the test harness image.
 cluster-test:
@@ -86,9 +95,11 @@ cluster-test:
 # Clean all related objects for cluster test
 cluster-test-clean:
 	./hack/operator-test-harness-pod.sh delete
+	oc delete -f ./template/manifests-test-job.yaml -n $(TEST_NAMESPACE) --ignore-not-found
+	oc delete -f ./template/download-artifacts-pod.yaml --ignore-not-found
+	oc delete -f ./template/artifacts-pvc.yaml --ignore-not-found
 	oc delete sa $(MANIFESTS_NAME)-sa -n $(TEST_NAMESPACE) --ignore-not-found
 	oc delete rolebinding $(MANIFESTS_NAME)-rb -n $(TEST_NAMESPACE) --ignore-not-found
-	oc delete job manifests-test-job -n $(TEST_NAMESPACE) --ignore-not-found
 	oc delete pod -l job_name=$(MANIFESTS_NAME)-job -n $(TEST_NAMESPACE) --ignore-not-found
 	oc delete pod jupyterhub-nb-admin  -n redhat-ods-applications --ignore-not-found --force --grace-period=0
 	oc delete pvc jupyterhub-nb-admin-pvc -n redhat-ods-applications  --ignore-not-found
