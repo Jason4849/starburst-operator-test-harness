@@ -53,6 +53,7 @@ func init() {
 
 var _ = ginkgo.BeforeSuite(func() {
 	defer ginkgo.GinkgoRecover()
+	resources.PrepareTest(config)
 
 	jupyterhub_test := false
 	if os.Getenv("JUPYTER_NOTEBOOK_PATH") != "" {
@@ -133,7 +134,6 @@ var _ = ginkgo.BeforeSuite(func() {
 var _ = ginkgo.Describe("ISV Operator Tests", func() {
 
 	ginkgo.It("Kubernetes objects & Integration test (Jupyterhub)", func() {
-		resources.PrepareTest(config)
 		clientset, err := kubernetes.NewForConfig(config)
 		Expect(err).NotTo(HaveOccurred())
 		var checkErr error = nil
@@ -208,25 +208,27 @@ var _ = ginkgo.Describe("Default Operator Tests:", func() {
 		var checkErr error = nil
 		retry := 0
 
+		fmt.Print("Start to check pods status\n")
+		
 		for retry <= 8 {
-			fmt.Printf("%d Retry to check pods status(every 30s)\n", retry)
 			result, pod := CheckPodStatus(clientset)
 			if result {
 				break
 			}
-
+			
 			if retry == 4 {
 				fmt.Println("Try to clean up not running pods")
 				if err = CleanUpNotRunningPod(clientset); err != nil {
 					checkErr = err
 				}
 				time.Sleep(30 * time.Second)
-			} else if retry == 8 {
+				} else if retry == 8 {
 				checkErr = fmt.Errorf("Pod is not running : %v", pod)
 			} else {
 				time.Sleep(30 * time.Second)
 			}
 			retry = retry + 1
+			fmt.Printf("%d Retry to check pods status(every 30s)\n", retry)
 
 		}
 
